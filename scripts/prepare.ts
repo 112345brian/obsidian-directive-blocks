@@ -1,3 +1,1 @@
-import { execFromRoot } from './helpers/root.ts';
-
-await execFromRoot('husky');
+// no-op: husky is not required for this plugin

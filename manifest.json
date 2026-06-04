@@ -1,0 +1,9 @@
+{
+  "author": "112345brian",
+  "authorUrl": "https://github.com/112345brian/",
+  "description": "Render ::: fenced div directive blocks in Obsidian with a plugin registration API.",
+  "id": "directive-blocks",
+  "isDesktopOnly": false,
+  "name": "Directive Blocks",
+  "version": "0.0.0"
+}
