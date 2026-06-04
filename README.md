@@ -1,64 +1,188 @@
-# generator-obsidian-plugin
+# obsidian-directive-blocks
 
-> Obsidian Plugin Yeoman Generator
+> ⚠️ **Vibe-coded disclaimer:** This plugin was generated entirely by Claude (AI) in a single session with no manual code review. It has not been tested in a real Obsidian vault. Use at your own risk, especially the Pandoc export command which shells out to your system. Contributions and bug reports welcome.
 
-[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/mnaoumov)
-[![NPM package](https://badge.fury.io/js/generator-obsidian-plugin.svg)](https://npmjs.org/package/generator-obsidian-plugin)
-[![GitHub release](https://img.shields.io/github/v/release/mnaoumov/generator-obsidian-plugin)](https://github.com/mnaoumov/generator-obsidian-plugin/releases)
-[![GitHub downloads](https://img.shields.io/github/downloads/mnaoumov/generator-obsidian-plugin/total)](https://github.com/mnaoumov/generator-obsidian-plugin/releases)
+An Obsidian plugin that adds `::: fenced div` directive block syntax to your notes — similar to Pandoc's fenced divs. Write structured content like callouts, ordered lists, and timelines using a clean, readable syntax, with rendering in both Reading View and Live Preview.
 
-## Installation
+---
 
-For template generator to be fully working it requires [Node.js](https://nodejs.org/) v18 or higher.
+## Syntax
 
-First, install [Yeoman](http://yeoman.io) and generator-obsidian-plugin using [npm](https://www.npmjs.com/) (we assume you have pre-installed [node.js](https://nodejs.org/)).
+Directive blocks use triple-colon fences:
 
-```bash
-npm install -g yo
-npm install -g generator-obsidian-plugin
+```
+:::directive-name
+body content
+:::
 ```
 
-Then generate your new project:
+Optionally pass JSON arguments on the opening line:
 
-```bash
-mkdir new-plugin-name
-cd new-plugin-name
-yo obsidian-plugin
+```
+:::callout {"type":"warning","title":"Heads up"}
+Something important to note here.
+:::
 ```
 
-## Sample output
+Blocks can be nested:
 
-You can see an sample output of this generator at [Sample Plugin Extended](https://github.com/mnaoumov/obsidian-sample-plugin-extended).
+```
+:::outer
+Some text.
+:::inner
+Nested content.
+:::
+:::
+```
 
-## Features of this template
+---
 
-- [Obsidian Extended Typings](https://github.com/Fevol/obsidian-typings/) for internal [Obsidian](https://obsidian.md/) API.
-- Code style is forced via [`ESLint`](https://eslint.org/).
-- Spell checking is forced via [`CSpell`](https://cspell.org/).
-- Code formatting is forced via [`dprint`](https://dprint.dev/).
-- CLI commands and code helpers from [Obsidian Dev Utils](https://github.com/mnaoumov/obsidian-dev-utils).
-- Supports [svelte](https://svelte.dev/) components. See example in `src/SvelteComponents` in the generated project.
-- Supports [react](https://react.dev) components. See example in `src/ReactComponents` in the generated project.
-- Supports [SASS](https://sass-lang.com/) for CSS pre-processing. See example in `src/styles/main.scss` in the generated project.
+## Built-in Directives
 
-### NPM Commands
+### `:::ordered`
 
-This template offers several NPM commands to facilitate common development tasks:
+Renders a bullet list as a numbered `<ol>`.
 
-See [documentation](https://github.com/mnaoumov/obsidian-dev-utils?tab=readme-ov-file#cli-commands) for the full list of such commands and how to extend them for your needs.
+```
+:::ordered
+- Write the tests
+- Implement the feature
+- Ship it
+:::
+```
 
-The documentation above shows usage examples in the form `npx obsidian-dev-utils foo`. This template additionally allows to call them via `npm run foo`.
+### `:::roman`
 
-<!-- markdownlint-disable MD033 -->
+Same as `:::ordered` but with lower-roman numerals (i, ii, iii…).
 
-<a href="https://www.buymeacoffee.com/mnaoumov" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="60" width="217"></a>
+```
+:::roman
+- Introduction
+- Methods
+- Results
+- Discussion
+:::
+```
 
-<!-- markdownlint-enable MD033 -->
+### `:::callout`
 
-## My other Obsidian resources
+Renders a styled callout box. Args: `type` (`info` | `warning` | `danger` | `tip`), optional `title`.
 
-[See my other Obsidian resources](https://github.com/mnaoumov/obsidian-resources).
+```
+:::callout {"type":"info","title":"Note"}
+This is an informational callout. The body supports **Markdown**.
+:::
+
+:::callout {"type":"danger"}
+Something will break.
+:::
+```
+
+### `:::timeline`
+
+Renders a vertical timeline. Each line should be `YYYY-MM-DD: Description`.
+
+```
+:::timeline
+- 2024-01-15: Project kickoff
+- 2024-03-02: First prototype
+- 2024-06-30: Public launch
+:::
+```
+
+---
+
+## Settings
+
+Open **Settings → Directive Blocks** to configure:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Live Preview rendering | On | Render directive blocks as widgets in the editor |
+| Reading View rendering | On | Render directive blocks in Reading View |
+| CSS class prefix | `directive` | Prefix for wrapper element classes |
+| Registered directives | — | Read-only list of all registered directive names |
+
+---
+
+## Pandoc Export
+
+The command **"Export to PDF via Pandoc"** converts the active note to PDF via Pandoc:
+
+1. Reads the raw Markdown source
+2. Pre-processes all `:::` directive blocks into plain Markdown equivalents
+3. Writes a temp file and runs `pandoc <file> -o <note-name>.pdf`
+4. Saves the PDF to your vault root
+5. Shows a notice on success or failure
+
+Requires [Pandoc](https://pandoc.org/installing.html) to be installed and on your `PATH`.
+
+You can also use the included [`directives.lua`](directives.lua) filter directly with Pandoc for more accurate output:
+
+```bash
+pandoc note.md --lua-filter=directives.lua -o note.pdf
+```
+
+The Lua filter maps:
+
+- `:::ordered` → `OrderedList` (decimal)
+- `:::roman` → `OrderedList` (LowerRoman)
+- `:::callout` → `BlockQuote` with a bold title
+- `:::timeline` → `DefinitionList`
+
+---
+
+## Plugin API (for developers)
+
+Other plugins can register custom directives without a hard dependency:
+
+```typescript
+function getDirectiveBlocksAPI(app: App) {
+  return (app as any).plugins?.plugins?.['directive-blocks']?.api ?? null;
+}
+
+const api = getDirectiveBlocksAPI(app);
+api?.registerDirective({
+  name: 'my-directive',
+  render: async ({ source, args, el, app, ctx }) => {
+    el.createEl('p', { text: `Custom: ${source}` });
+  },
+});
+```
+
+The `render` function receives:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `source` | `string` | Raw body text of the directive block |
+| `args` | `Record<string, unknown>` | Parsed JSON args from the opening line |
+| `el` | `HTMLElement` | The wrapper element to render into |
+| `app` | `App` | The Obsidian App instance |
+| `ctx` | `MarkdownPostProcessorContext` | Post-processor context |
+
+---
+
+## Development
+
+```bash
+git clone https://github.com/112345brian/obsidian-directive-blocks
+cd obsidian-directive-blocks
+npm install
+
+# Run tests
+npm test
+
+# Build
+npm run build
+
+# Watch mode
+node scripts/build.ts dev
+```
+
+To use in a vault during development, copy `main.js` and `manifest.json` into `.obsidian/plugins/directive-blocks/`.
+
+---
 
 ## License
 
-© [Michael Naumov](https://github.com/mnaoumov/)
+MIT
