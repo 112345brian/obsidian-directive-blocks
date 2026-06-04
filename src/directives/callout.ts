@@ -14,11 +14,12 @@ const CALLOUT_ICONS: Record<string, string> = {
 export const calloutDirective: DirectiveConfig = {
   name: 'callout',
   async render({ args, source, el, app, ctx }) {
-    const type = (args['type'] as string | undefined) ?? 'info';
+    const type = ((args['type'] as string | undefined) ?? 'info').toLowerCase();
     const title = (args['title'] as string | undefined) ?? type;
     const icon = CALLOUT_ICONS[type] ?? 'ℹ️';
 
     el.addClass('directive-callout', `directive-callout-${type}`);
+    el.dataset['calloutType'] = type; // enables [data-callout-type="info"] CSS targeting
 
     const header = el.createEl('div', { cls: 'directive-callout-header' });
     header.createEl('span', { cls: 'directive-callout-icon', text: icon });

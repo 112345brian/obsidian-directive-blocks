@@ -67,6 +67,12 @@ describe('parseDirectiveBlocks', () => {
     expect(block?.name).toBe('my-directive');
   });
 
+  it('normalizes directive names to lowercase', () => {
+    const src = ':::Callout\nbody\n:::';
+    const [block] = parseDirectiveBlocks(src);
+    expect(block?.name).toBe('callout');
+  });
+
   it('preserves correct line numbers with leading content', () => {
     const src = 'preamble\n:::block\nbody\n:::';
     const [block] = parseDirectiveBlocks(src);

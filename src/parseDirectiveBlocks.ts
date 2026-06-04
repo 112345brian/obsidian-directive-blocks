@@ -28,7 +28,7 @@ export function parseDirectiveBlocks(source: string): DirectiveBlock[] {
     }
 
     const startLine = i;
-    const name = openMatch[1]!;
+    const name = openMatch[1]!.toLowerCase();
     let args: Record<string, unknown> = {};
 
     if (openMatch[2]) {

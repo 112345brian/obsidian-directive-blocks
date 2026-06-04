@@ -10,10 +10,18 @@ export interface DirectiveRenderDetail {
   source: string;
 }
 
+const INTERACTIVE_TAGS = new Set(['A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'LABEL']);
+
+export function isInteractiveElement(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && INTERACTIVE_TAGS.has(target.tagName);
+}
+
 /**
  * Process the reading-view container once per render pass.
  * Finds <p> elements that contain ::: fencing, groups siblings into
  * directive blocks, and dispatches "directive-render" custom events.
+ *
+ * Names are matched case-insensitively (parseDirectiveBlocks already lowercases them).
  */
 export async function processReadingView(
   containerEl: HTMLElement,
@@ -28,41 +36,37 @@ export async function processReadingView(
   if (!file) return;
 
   const source = await app.vault.cachedRead(file);
-  const blocks = parseDirectiveBlocks(source);
+  const blocks = parseDirectiveBlocks(source); // names already lowercased
   if (blocks.length === 0) return;
 
-  // Collect all child paragraphs with their text content
   const children = Array.from(containerEl.children) as HTMLElement[];
-
-  // Map each child to the raw text it likely represents
-  const childTexts = children.map((el) => el.textContent?.trim() ?? '');
+  const childTexts = children.map((el) => el.textContent?.trim().toLowerCase() ?? '');
 
   for (const block of blocks) {
-    const openText = `:::${block.name}${Object.keys(block.args).length ? ' ' + JSON.stringify(block.args) : ''}`;
+    // Match the opening fence case-insensitively
+    const openTextExact = `:::${block.name}${Object.keys(block.args).length ? ' ' + JSON.stringify(block.args) : ''}`;
+    const openTextPlain = `:::${block.name}`;
 
-    // Find the child element that corresponds to the opening fence
-    const openIdx = childTexts.findIndex((t) => t === openText || t === `:::${block.name}`);
+    const openIdx = childTexts.findIndex(
+      (t) => t === openTextExact.toLowerCase() || t === openTextPlain
+    );
     if (openIdx === -1) continue;
 
-    // Find the child element that is the closing fence
     const closeIdx = childTexts.findIndex((t, i) => i > openIdx && t === ':::');
     if (closeIdx === -1) continue;
 
-    // Gather all elements between open and close (inclusive)
     const elements = children.slice(openIdx, closeIdx + 1);
 
-    // Build the wrapper div
     const wrapper = document.createElement('div');
     wrapper.className = `${cssPrefix}-block`;
     wrapper.dataset['directive'] = block.name;
+    wrapper.dataset['directiveType'] = block.name;
 
-    // Replace the opening element with the wrapper and remove the rest
     elements[0]!.replaceWith(wrapper);
     for (const el of elements.slice(1)) {
       el.remove();
     }
 
-    // Dispatch the render event so registered handlers can populate the wrapper
     const detail: DirectiveRenderDetail = {
       name: block.name,
       args: block.args,
