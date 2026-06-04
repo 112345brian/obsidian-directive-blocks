@@ -9,7 +9,7 @@ import type { PluginSettings } from './PluginSettings.ts';
 import { calloutDirective } from './directives/callout.ts';
 import { orderedDirective, romanDirective } from './directives/ordered.ts';
 import { timelineDirective } from './directives/timeline.ts';
-import { createDirectiveStateField } from './EditorExtensions/DirectiveStateField.ts';
+import { createDirectiveViewPlugin } from './EditorExtensions/DirectiveViewPlugin.ts';
 import { exportToPdf } from './PandocExport.ts';
 import { PluginSettingsTab } from './PluginSettingsTab.ts';
 import { processReadingView } from './ReadingViewRenderer.ts';
@@ -113,9 +113,9 @@ export class Plugin extends ObsidianPlugin {
       }
     );
 
-    // Live Preview CM6 extension
+    // Live Preview CM6 extension — ViewPlugin with async MarkdownRenderer
     this.registerEditorExtension([
-      createDirectiveStateField(() => this.pluginSettings.enableLivePreview),
+      createDirectiveViewPlugin(this.app, this, () => this.pluginSettings.enableLivePreview),
     ]);
 
     // Pandoc export command

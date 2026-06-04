@@ -34,7 +34,7 @@
     "./src/PandocExport.ts",
     "./src/parseDirectiveBlocks.ts",
     "./src/parseDirectiveBlocks.test.ts",
-    "./src/EditorExtensions/**/*.ts",
+    "./src/EditorExtensions/DirectiveViewPlugin.ts",
     "./src/directives/**/*.ts",
     "./src/styles/**/*.scss"
   ]

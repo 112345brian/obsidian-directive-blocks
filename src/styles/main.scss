@@ -43,10 +43,18 @@
   }
 
   .directive-block-widget-body {
-    color: var(--text-muted);
-    font-size: 0.85em;
+    font-size: 0.9em;
     padding: 4px 8px;
-    white-space: pre-wrap;
+
+    // Shown while MarkdownRenderer.render() is in flight
+    &.directive-block-widget-loading {
+      color: var(--text-faint);
+      font-style: italic;
+    }
+
+    // Once rendered, let Obsidian's standard markdown styles apply
+    > :first-child { margin-top: 0; }
+    > :last-child  { margin-bottom: 0; }
   }
 }
 
