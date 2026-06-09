@@ -1,0 +1,16 @@
+.ontology-query-results {
+  margin: 1em 0;
+}
+
+.ontology-query-results table {
+  width: 100%;
+}
+
+.ontology-query-results th,
+.ontology-query-results td {
+  padding: 0.35em 0.5em;
+}
+
+.ontology-query-empty {
+  color: var(--text-muted);
+}

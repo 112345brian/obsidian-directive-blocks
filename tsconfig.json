@@ -1,0 +1,41 @@
+{
+  "extends": "@tsconfig/strictest/tsconfig.json",
+  "compilerOptions": {
+    "allowArbitraryExtensions": true,
+    "allowImportingTsExtensions": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "inlineSourceMap": true,
+    "inlineSources": true,
+    "lib": [
+      "DOM",
+      "ES2022"
+    ],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": true,
+    "skipLibCheck": true,
+    "target": "ES2022",
+    "types": [
+      "node"
+    ],
+    "verbatimModuleSyntax": true
+  },
+  "include": [
+    "./scripts/build.ts",
+    "./scripts/prepare.ts",
+    "./scripts/version.ts",
+    "./src/main.ts",
+    "./src/Plugin.ts",
+    "./src/PluginSettings.ts",
+    "./src/PluginSettingsTab.ts",
+    "./src/DirectiveBlocksAPI.ts",
+    "./src/ReadingViewRenderer.ts",
+    "./src/PandocExport.ts",
+    "./src/parseDirectiveBlocks.ts",
+    "./src/parseDirectiveBlocks.test.ts",
+    "./src/EditorExtensions/DirectiveViewPlugin.ts",
+    "./src/directives/**/*.ts",
+    "./src/styles/**/*.scss"
+  ]
+}

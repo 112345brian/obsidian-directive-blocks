@@ -1,0 +1,563 @@
+# Ontological Markdown — System Specification
+
+## Overview
+
+Ontological Markdown is a local-first, plaintext knowledge system that combines Markdown's durability with ontology-aware querying, inheritance, and structured relationships. All knowledge exists as ordinary Markdown files. The ontology layer is additive rather than foundational.
+
+No proprietary database. No cloud dependency. No vendor lock-in.
+
+### Core Value Proposition
+
+The fundamental problem this solves: **you should not have to repeat yourself**.
+
+If you declare a note as `instance_of: [[Friend]]`, you should never also have to tag it `people`, `friends-and-family`, or any other parent type. The system resolves the full inheritance chain automatically. Querying `type: Person` returns your friend. You said it once.
+
+Everything else in this system — validation, relations, queries, migrations — exists to make that inheritance trustworthy at scale. The consistency checker exists not as an end in itself but so that when you query "philosophers who didn't influence Nietzsche who were women" you can trust the answer.
+
+### Day-to-Day Goals
+
+1. **Declare a type once** — never manually maintain what that implies
+2. **Auto-scaffold new notes** — `instance_of: [[Philosopher]]` fills in the right fields automatically via templates
+3. **Auto-maintain relations** — writing `influenced: [[Leibniz]]` on Spinoza's page writes `influenced_by: [[Spinoza]]` on Leibniz's page automatically
+4. **Query correctly** — inheritance-aware queries that return the right answer without manual tagging
+
+---
+
+## File Structure
+
+```
+vault/
+  _types/         # Type definitions
+  _queries/       # Saved queries (first-class entities)
+  _migrations/    # Migration history and audit trail
+  *.md            # Entity files (regular notes)
+```
+
+### V1 Priority
+
+The minimum useful system is:
+
+1. `_types/` folder with inheritance and property schemas
+2. Inheritance resolver (the core engine)
+3. Auto-updating inverse relations
+4. Templater integration for scaffolding new notes
+5. Consistency checker
+
+Saved queries, migrations, and the full query language are depth features built on top.
+
+---
+
+## Types
+
+Types are Markdown files in `_types/`. They define inheritance, properties, relations, and constraints.
+
+### Inheritance
+
+```markdown
+# Philosopher
+extends:
+  - [[Person]]
+```
+
+Multiple inheritance is supported:
+
+```markdown
+# Singer-Songwriter
+extends:
+  - [[Singer]]
+  - [[Composer]]
+```
+
+### Abstract Types
+
+Types that cannot be directly instantiated — only subtyped:
+
+```markdown
+# Entity
+abstract: true
+```
+
+### Disjoint Types
+
+Declaring that two types are mutually exclusive — no entity can be both:
+
+```markdown
+# Philosopher
+disjoint:
+  - [[Musician]]
+```
+
+---
+
+## Entities
+
+Regular Markdown notes. All ontology data is stored in **YAML frontmatter** — standard Obsidian frontmatter, compatible with every other plugin that reads it.
+
+```markdown
+---
+instance_of: "[[Rationalist]]"
+wrote:
+  - "[[Ethics]]"
+influenced_by:
+  - "[[Descartes]]"
+---
+
+# Spinoza
+```
+
+`type` is supported as a shorthand alias for `instance_of`.
+
+---
+
+## Property Schemas
+
+Type files define property constraints for their entities.
+
+```markdown
+# Philosopher
+extends:
+  - [[Person]]
+
+must-have:
+  time-period: string
+  school-of-thought: [[SchoolOfThought]]
+
+can-have:
+  magnum-opus: [[Work]]
+  nationality: string
+
+cannot-have:
+  tag: string == personal
+```
+
+### Property Tiers
+
+- `must-have` — required; entity fails validation without it
+- `can-have` — optional; valid if present
+- `cannot-have` — forbidden; entity fails validation if present (supports value constraints)
+
+### Property Types
+
+- `string`
+- `boolean`
+- `number`
+- `date`
+- `[[TypeName]]` — link to an entity of a given type
+- `enum` — see Nominals
+
+### Cardinality
+
+```markdown
+must-have:
+  birth-date:
+    type: date
+    cardinality: one
+  wrote:
+    type: [[Work]]
+    cardinality: many
+```
+
+### Constraint Inheritance
+
+Subtypes may tighten constraints from parent types. A `can-have` in a parent can be promoted to `must-have` in a subtype. Constraints may not be loosened going down the hierarchy.
+
+---
+
+## Nominals
+
+Named enumerations. Can be defined locally inside a type, or globally as their own type files.
+
+### Local Nominal
+
+```markdown
+# Philosopher
+must-have:
+  school-of-thought:
+    type: nominal
+    values: [rationalism, empiricism, idealism, stoicism]
+```
+
+### Global Nominal
+
+Defined as a type file, reusable across types:
+
+```markdown
+# _types/SchoolOfThought.md
+type: nominal
+values: [rationalism, empiricism, idealism, stoicism]
+```
+
+Referenced in type definitions:
+
+```markdown
+must-have:
+  school-of-thought: [[SchoolOfThought]]
+```
+
+Global nominals are themselves entities in the system and can have properties and relations like any other type.
+
+---
+
+## Relations
+
+Relations are defined in type files with domain, range, cardinality, and behavior.
+
+```markdown
+# Philosopher
+relations:
+  wrote:
+    range: [[Work]]
+    cardinality: one-to-many
+    inverse: written-by
+    auto-update: true
+
+  influenced:
+    range: [[Person]]
+    inverse: influenced_by
+    auto-update: true
+
+  married-to:
+    range: [[Person]]
+    cardinality: one-to-one
+    symmetric: true
+```
+
+### Meta-Relation Properties
+
+- `range` — the type the relation must point to (validated against vault)
+- `cardinality` — `one-to-one`, `one-to-many`, `many-to-many`
+- `inverse` — a separate reciprocal property implied by this relation
+- `symmetric` — same property in both directions (no separate inverse needed)
+- `transitive` — if A→B and B→C then A→C is implied
+- `auto-update` — whether the system automatically writes the inverse/symmetric relation to the target file on commit
+
+---
+
+## Provenance
+
+Relations can carry source and confidence metadata:
+
+```markdown
+influenced_by:
+  - target: [[Descartes]]
+    source: [[Letter-to-Mersenne-1641]]
+    confidence: high
+```
+
+---
+
+## Temporal Properties
+
+Facts that are true during a period rather than universally:
+
+```markdown
+member-of:
+  - target: [[RoyalAcademy]]
+    from: 1672
+    to: 1676
+```
+
+---
+
+## Negation
+
+Explicitly asserting that a relation does not hold, distinct from simply omitting it. Matters for consistency checking in the closed world:
+
+```markdown
+influenced_by:
+  - NOT [[Descartes]]
+```
+
+---
+
+## Query Language
+
+Queries are written inside `ontology-query` code blocks. The plugin registers a custom code block processor that parses the query and renders results inline — the same pattern Dataview uses. This is distinct from YAML frontmatter, which remains plain and valid throughout.
+
+````markdown
+```ontology-query
+type: Philosopher
+AND NOT influenced: [[Nietzsche]]
+AND instance_of: [[Woman]]
+```
+````
+
+Queries operate on the type graph rather than raw property values. Inheritance is resolved automatically — `type: Philosopher` returns Rationalists, Empiricists, and all other subtypes. Only locked entities are returned by default — see Lock States for opt-in behavior.
+
+### Basic Type Query
+
+```
+type: Person
+```
+
+Returns all entities whose resolved type chain includes `Person`.
+
+### Relation Filter
+
+```
+influenced_by: [[Descartes]]
+```
+
+### Boolean Operators
+
+`AND`, `OR`, and `NOT` are supported across all query expressions:
+
+```
+type: Philosopher AND NOT influenced: [[Nietzsche]]
+
+type: Philosopher OR type: Scientist
+
+type: Person AND NOT instance_of: [[Philosopher]]
+```
+
+`NOT` on a relation means the relation is either explicitly negated or absent entirely. `NOT` on a type excludes entities whose resolved type chain includes that type.
+
+### Complex Example
+
+```
+type: Philosopher
+AND NOT influenced: [[Nietzsche]]
+AND instance_of: [[Woman]]
+```
+
+### Traversal
+
+```
+type: Philosopher WHERE influenced_by.school-of-thought == rationalism
+```
+
+Traversal supports `AND`, `OR`, and `NOT` within the `WHERE` clause:
+
+```
+type: Philosopher
+WHERE influenced_by.school-of-thought == rationalism
+AND NOT wrote.title == "Ethics"
+```
+
+### Existence Checks
+
+```
+type: Person AND birth-date: EXISTS
+type: Person AND death-date: NOT EXISTS
+```
+
+### Future: Bases Integration
+
+Obsidian Bases may serve as an alternative query surface for simple flat queries that don't require inheritance resolution. This is deferred to a later iteration — the custom query block is the foundation.
+
+---
+
+## Saved Queries
+
+Queries are files in `_queries/` and are first-class entities in the system. Other notes can reference or embed them.
+
+```markdown
+# _queries/living-rationalists.md
+instance_of: [[Query]]
+
+query: |
+  type: Rationalist
+  AND birth-date: EXISTS
+  AND death-date: NOT EXISTS
+```
+
+---
+
+## Consistency Checking
+
+The system operates under the **closed world assumption** — the vault is the complete universe of facts. Consistency checking is a graph traversal against the full vault, not a theorem-proving problem.
+
+Consistency checking is **infrastructure for trustworthy queries**, not an end in itself. The goal is that when you ask "philosophers who didn't influence Nietzsche who were women" you get the right answer — not a partial answer because someone was inconsistently tagged or a relation was only written on one side.
+
+Checks performed:
+
+- Entities missing `must-have` properties
+- Entities with `cannot-have` properties (including value constraint violations)
+- Relation targets that are the wrong type
+- Property values outside a nominal's allowed set
+- Entities simultaneously claiming disjoint types
+- Inheritance conflicts between parent types
+- Cardinality violations
+- Negation conflicts (a relation both asserted and negated)
+- Inverse relations that are missing or inconsistent (auto-fixable)
+
+---
+
+## Migrations
+
+### Conflict Resolution
+
+When a schema change or instantiation produces a conflict — for example, two parent types defining the same property with different constraints — **the older definition wins**. The newer change is flagged as a violation rather than silently overwriting existing data.
+
+This applies to:
+- Multiple inheritance conflicts between parent type definitions
+- Schema modifications that contradict an existing entity's frontmatter
+- Relation type conflicts across the inheritance chain
+
+### Circularity
+
+Circular inheritance is forbidden and checked at the schema level on every type file save. If introducing an `extends` relation would create a cycle in the type graph, the change is rejected before it is written.
+
+```
+A extends B
+B extends A  ← rejected: circular inheritance
+```
+
+Cycle detection runs as a depth-first search over the type graph. The same check applies to transitive relations — a relation declared `transitive: true` with a circular chain would produce infinite inference and is equally forbidden.
+
+No file in a circular chain can ever be locked, so circularity is a hard error rather than a warning.
+
+### Schema Mode
+
+A vault-wide setting controls how notes without `instance_of` are treated:
+
+```yaml
+# _types/_config.md
+schema-mode: libertarian  # or: authoritarian
+```
+
+- **Libertarian** — notes without `instance_of` are outside the ontology entirely; no enforcement; invisible to schema validation. This is the default.
+- **Authoritarian** — notes without `instance_of` fail validation.
+
+Either way, untyped notes are still queryable as raw notes. The mode only affects schema enforcement.
+
+### Lock States
+
+Every file in the vault — both type files and entity files — stores a lock *intent* in frontmatter:
+
+```yaml
+lock: true
+```
+
+The system computes *effective* lock state at query time based on intent plus the full ancestor chain. No files are rewritten when an ancestor changes — the cascade is computed, not stored.
+
+Effective states:
+
+- **Locked** — `lock: true` and all ancestors are locked; schema enforced; appears in trusted query results
+- **Incomplete** — `lock: true` but one or more ancestors are not locked; schema enforcement suspended; excluded from trusted query results by default
+- **Unlocked** — `lock: false` or no lock field; no enforcement; excluded from trusted query results by default
+
+Lock state propagates bottom-up. `Rationalist` cannot be effectively locked until `Philosopher` is locked; `Philosopher` cannot be locked until `Person` is locked. The practical workflow is to lock from the root of the hierarchy downward.
+
+Unlocking a type is a destructive operation that cascades downward — all subtypes and their instances become incomplete. This requires the same dry-run confirmation as a schema commit, showing how many entities will be affected.
+
+Queries return only locked entities by default. To include other states:
+
+```
+type: Philosopher include: incomplete
+type: Philosopher include: all
+```
+
+### Commit Workflow
+
+Schema changes are not applied automatically. Editing a type file and running commit triggers a dry run:
+
+```
+Dry run for changes to Philosopher.md:
+
+  ✓ 12 entities will have time-period added
+  ✓ 8 entities already have school-of-thought
+  ⚠ 3 entities cannot be updated — has tag: personal
+      - Wittgenstein.md
+      - my-private-notes.md
+      - journal-2023.md
+
+Proceed? [y/n]
+```
+
+The user confirms or aborts before any files are modified.
+
+### Migration History
+
+Applied migrations are recorded in `_migrations/` as Markdown files:
+
+```markdown
+# _migrations/2024-03-15-philosopher-schema.md
+
+changed: [[Philosopher]]
+date: 2024-03-15
+
+added-must-have:
+  - time-period: string
+
+affected: 12
+skipped: 3
+skipped-reason: cannot-have violation (tag: personal)
+```
+
+---
+
+## Indexing
+
+The system maintains a type graph serialized to a JSON cache in `.obsidian/ontology-cache.json`. On startup the cache is loaded directly — no full rebuild unless the cache is missing or corrupted. The cache is updated incrementally on file changes.
+
+### Priority Queue
+
+Index freshness is prioritized by:
+
+```
+priority = recency_weight * (1 + downstream_count)
+```
+
+- **Recency** — recently modified files are indexed first
+- **Downstream count** — type files referenced by many entities are higher priority than leaf nodes; a change to `Person.md` propagates everywhere
+
+The hot portion of the graph (recently active notes, high-reference types) stays fresh. The cold tail updates lazily in the background.
+
+### Adaptive Validation Throttling
+
+Schema validation is throttled during normal operation to avoid blocking the editor. When a type file is modified, the system counts entities registered under the affected class:
+
+- **Above threshold** — validation is run immediately and prioritized
+- **Below threshold** — validation is throttled and runs lazily in the background
+
+The threshold is configurable in `_types/_config.md`. This ensures that modifying a root type with thousands of children is treated with appropriate urgency, while editing a leaf type with two instances does not block the user.
+
+---
+
+## Implementation Notes
+
+### Core Library
+
+The indexer, type graph, inheritance resolver, query engine, constraint checker, and migration system are implemented as a standalone TypeScript library with no editor dependency. Editor integrations (VS Code extension, CLI tool, etc.) are thin wrappers around this library.
+
+### Editor Integrations
+
+- **VS Code extension** — query block renderer, commit UI, inline validation
+- **CLI** — `ontology query "type: Person"`, `ontology check`, `ontology commit`
+
+### Instantiation Hook
+
+The system watches file diffs for frontmatter changes. When it detects `instance_of` being set on a note for the first time, it resolves the full type chain, then invokes a configured script to scaffold the inherited fields automatically.
+
+The hook system is generic — the script can be a Templater JS file, a plain JS file, or any other executable. The system doesn't care what runs, only that `instance_of` was set and a script is registered for that type.
+
+```markdown
+# _types/Philosopher.md
+extends:
+  - "[[Person]]"
+on-instantiate: _scripts/scaffold-philosopher.js
+
+must-have:
+  time-period: string
+  school-of-thought: "[[SchoolOfThought]]"
+
+can-have:
+  magnum-opus: "[[Work]]"
+```
+
+When `instance_of: "[[Philosopher]]"` is saved to a note's frontmatter, the hook fires and scaffolds:
+
+```yaml
+time-period: 
+school-of-thought: 
+magnum-opus: 
+wrote: 
+influenced_by: 
+```
+
+All fields — including those inherited from `Person` — are written without manual frontmatter editing.
+
+### Prior Art
+
+The system implements a pragmatic subset of OWL (Web Ontology Language) semantics in readable Markdown syntax. Concepts borrowed from OWL include symmetric/transitive/inverse properties, nominals, cardinality restrictions, disjointness, and consistency checking. Full OWL reasoning (universal restrictions, open-world inference, decidability proofs) is explicitly out of scope.

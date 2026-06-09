@@ -1,0 +1,100 @@
+import { parseYaml } from 'obsidian';
+
+import type { OntologyEntity, OntologyType, PropertyDefinition, RelationDefinition } from './types.ts';
+
+import { basenameWithoutExtension, extractLinkTargets, normalizeLinkTarget } from './links.ts';
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function readYamlObject(markdown: string): Record<string, unknown> {
+  const trimmed = markdown.trim();
+  if (!trimmed) {
+    return {};
+  }
+
+  if (trimmed.startsWith('---')) {
+    const end = trimmed.indexOf('\n---', 3);
+    if (end !== -1) {
+      return asRecord(parseYaml(trimmed.slice(3, end)));
+    }
+  }
+
+  const withoutHeading = trimmed.replace(/^# .*(?:\r?\n|$)/, '');
+  return asRecord(parseYaml(withoutHeading));
+}
+
+function parsePropertyDefinition(value: unknown): PropertyDefinition {
+  if (typeof value === 'string') {
+    return { type: normalizeLinkTarget(value) };
+  }
+  const record = asRecord(value);
+  const type = typeof record['type'] === 'string' ? normalizeLinkTarget(record['type']) : undefined;
+  const cardinality = typeof record['cardinality'] === 'string' ? record['cardinality'] : undefined;
+  const values = Array.isArray(record['values']) ? record['values'].map(String) : undefined;
+  return { cardinality, type, values };
+}
+
+function parsePropertyMap(value: unknown): Map<string, PropertyDefinition> {
+  return new Map(
+    Object.entries(asRecord(value)).map(([key, definition]) => [key, parsePropertyDefinition(definition)])
+  );
+}
+
+function parseCannotHave(value: unknown): Set<string> {
+  if (Array.isArray(value)) {
+    return new Set(value.map(String));
+  }
+  return new Set(Object.keys(asRecord(value)));
+}
+
+function parseRelationDefinition(value: unknown): RelationDefinition {
+  const record = asRecord(value);
+  return {
+    autoUpdate: record['auto-update'] === true,
+    cardinality: typeof record['cardinality'] === 'string' ? record['cardinality'] : undefined,
+    inverse: typeof record['inverse'] === 'string' ? record['inverse'] : undefined,
+    range: typeof record['range'] === 'string' ? normalizeLinkTarget(record['range']) : undefined,
+    symmetric: record['symmetric'] === true,
+    transitive: record['transitive'] === true,
+  };
+}
+
+function parseRelations(value: unknown): Map<string, RelationDefinition> {
+  return new Map(Object.entries(asRecord(value)).map(([key, definition]) => [key, parseRelationDefinition(definition)]));
+}
+
+export function parseOntologyType(path: string, markdown: string): OntologyType {
+  const yaml = readYamlObject(markdown);
+  const name = basenameWithoutExtension(path);
+  return {
+    abstract: yaml['abstract'] === true,
+    canHave: parsePropertyMap(yaml['can-have']),
+    cannotHave: parseCannotHave(yaml['cannot-have']),
+    disjoint: extractLinkTargets(yaml['disjoint']),
+    extends: extractLinkTargets(yaml['extends']),
+    lockIntent: yaml['lock'] === true,
+    mustHave: parsePropertyMap(yaml['must-have']),
+    name,
+    path,
+    relations: parseRelations(yaml['relations']),
+    typeKind: typeof yaml['type'] === 'string' ? yaml['type'] : undefined,
+    values: Array.isArray(yaml['values']) ? yaml['values'].map(String) : [],
+  };
+}
+
+export function parseOntologyEntity(path: string, frontmatter: Record<string, unknown>): OntologyEntity | null {
+  const instanceOf = extractLinkTargets(frontmatter['instance_of'] ?? frontmatter['type']);
+  if (instanceOf.length === 0) {
+    return null;
+  }
+
+  return {
+    frontmatter,
+    instanceOf,
+    lockIntent: frontmatter['lock'] === true,
+    name: basenameWithoutExtension(path),
+    path,
+  };
+}
