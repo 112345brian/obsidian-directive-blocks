@@ -82,6 +82,7 @@ export interface OntologyIndex {
     filesToIgnore: string[];
     foldersToIgnore: string[];
     frontmatterIgnoreRules: FrontmatterIgnoreRule[];
+    schemaPath: string;
     typeFolder: string;
   };
   types: Map<string, OntologyType>;

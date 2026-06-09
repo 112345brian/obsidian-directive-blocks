@@ -78,6 +78,7 @@ function makeIndex(): OntologyIndex {
       filesToIgnore: [],
       foldersToIgnore: [],
       frontmatterIgnoreRules: [],
+      schemaPath: '',
       typeFolder: '_types',
     },
     types: new Map([

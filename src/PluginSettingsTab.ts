@@ -59,6 +59,19 @@ export class PluginSettingsTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName('Schema file')
+      .setDesc('Optional vault-relative JSON or YAML file that defines relations, interfaces, and types in one place.')
+      .addText((text) =>
+        text
+          .setPlaceholder('_types/ontology.schema.yaml')
+          .setValue(this.plugin.pluginSettings.schemaPath)
+          .onChange(async (value) => {
+            this.plugin.pluginSettings.schemaPath = value.trim();
+            await this.plugin.savePluginSettings();
+          })
+      );
+
+    new Setting(containerEl)
       .setName('Cache path')
       .setDesc('Vault-relative JSON cache path.')
       .addText((text) =>

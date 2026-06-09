@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import type { App, TFile } from 'obsidian';
 import type { OntologyIndex, OntologyType, RelationDefinition } from './types.ts';
 
 vi.mock('obsidian', () => ({
   parseYaml: () => ({}),
 }));
 
-import { isIgnoredByFrontmatter, recomputeOntologyDerivedState, removeOntologyFile } from './indexer.ts';
+import { buildOntologyIndex, isIgnoredByFrontmatter, recomputeOntologyDerivedState, removeOntologyFile } from './indexer.ts';
 
 function makeType(
   name: string,
@@ -64,6 +65,7 @@ function makeIndex(): OntologyIndex {
       filesToIgnore: [],
       foldersToIgnore: [],
       frontmatterIgnoreRules: [],
+      schemaPath: '',
       typeFolder: '_types',
     },
     types: new Map([
@@ -205,6 +207,71 @@ describe('incremental ontology index state', () => {
       file: 'Trait.md',
       message: 'Cannot instantiate interface Influenceable',
       severity: 'error',
+    }));
+  });
+
+  it('loads a single JSON schema file as ontology constructors', async () => {
+    const schema = JSON.stringify({
+      interfaces: {
+        Influenceable: {
+          lock: true,
+          relations: ['influenced_by'],
+        },
+      },
+      relations: {
+        influenced_by: {
+          inverse: 'influenced',
+          range: 'Person',
+          'value-type': 'wikilink',
+        },
+      },
+      types: {
+        Person: {
+          lock: true,
+        },
+        Philosopher: {
+          extends: ['[[Person]]'],
+          implements: ['[[Influenceable]]'],
+          lock: true,
+        },
+      },
+    });
+    const file = {
+      extension: 'md',
+      path: 'Spinoza.md',
+    } as TFile;
+    const app = {
+      metadataCache: {
+        getFileCache: () => ({
+          frontmatter: {
+            influenced_by: '[[Descartes]]',
+            instance_of: '[[Philosopher]]',
+            lock: true,
+          },
+        }),
+      },
+      vault: {
+        adapter: {
+          exists: (path: string) => Promise.resolve(path === '_types/ontology.schema.json'),
+          read: () => Promise.resolve(schema),
+        },
+        getMarkdownFiles: () => [file],
+      },
+    } as unknown as App;
+
+    const index = await buildOntologyIndex(app, {
+      schemaPath: '_types/ontology.schema.json',
+      typeFolder: '_types',
+    });
+
+    expect(index.types.get('Influenceable')?.isInterface).toBe(true);
+    expect(index.types.get('Philosopher')?.implements).toEqual(['Influenceable']);
+    expect(index.relationDefinitions.get('influenced_by')?.inverse).toBe('influenced');
+    expect(index.effectiveEntityLocks.get('Spinoza.md')?.state).toBe('locked');
+    expect(index.issues).toContainEqual(expect.objectContaining({
+      file: 'Spinoza.md',
+      property: 'influenced_by',
+      target: 'Descartes',
     }));
   });
 });

@@ -28,6 +28,7 @@ Everything else in this system â€” validation, relations, queries, migrations â€
 ```
 vault/
   _types/         # Type definitions
+    ontology.schema.yaml  # Optional single-file schema
   _queries/       # Saved queries (first-class entities)
   _migrations/    # Migration history and audit trail
   *.md            # Entity files (regular notes)
@@ -37,7 +38,7 @@ vault/
 
 The minimum useful system is:
 
-1. `_types/` folder with inheritance and property schemas
+1. `_types/` folder and/or single schema file with inheritance, interfaces, relations, and property schemas
 2. Inheritance resolver (the core engine)
 3. Auto-updating inverse relations
 4. Templater integration for scaffolding new notes
@@ -50,6 +51,48 @@ Saved queries, migrations, and the full query language are depth features built 
 ## Types
 
 Types are Markdown files in `_types/`. They define inheritance, properties, relations, and constraints.
+Alternatively, the same constructors can be declared in one JSON or YAML schema file configured in plugin settings.
+
+### Single Schema File
+
+The optional schema file is a vault-relative JSON or YAML file.
+It compiles into the same internal graph as modular `_types/*.md` constructor files.
+
+```yaml
+relations:
+  influenced_by:
+    value-type: wikilink
+    range: [[Person]]
+    inverse: influenced
+    auto-update: true
+
+interfaces:
+  Influenceable:
+    lock: true
+    relations:
+      - influenced_by
+
+types:
+  Person:
+    lock: true
+
+  Philosopher:
+    lock: true
+    extends:
+      - [[Person]]
+    implements:
+      - [[Influenceable]]
+```
+
+The modular equivalent is:
+
+- `_types/_relations.md`
+- `_types/Influenceable.md`
+- `_types/Person.md`
+- `_types/Philosopher.md`
+
+Both approaches may be used together.
+If names collide, the later-loaded modular type file overrides the single schema constructor with the same name.
 
 ### Composition And Interfaces
 

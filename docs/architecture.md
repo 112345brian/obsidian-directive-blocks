@@ -18,7 +18,7 @@ The product contract remains [`spec.md`](spec.md); this document explains how th
 - `src/Plugin.ts` is the Obsidian wrapper.
   It registers commands, settings, vault-change listeners, and the `ontology-query` code block processor.
 - `src/PluginSettings.ts` and `src/PluginSettingsTab.ts` define user-configurable plugin settings.
-- `src/ontology/parser.ts` reads type files and entity frontmatter into typed records.
+- `src/ontology/parser.ts` reads type files, the optional single schema file, and entity frontmatter into typed records.
 - `src/ontology/indexer.ts` builds and incrementally updates the ontology graph, computes inherited type chains, computes effective lock states, and validates consistency.
 - `src/ontology/query.ts` evaluates the V1 query subset against the built index.
 - `src/ontology/mutations.ts` performs frontmatter writes for scaffolding and missing inverse relation fixes.
@@ -31,16 +31,17 @@ The product contract remains [`spec.md`](spec.md); this document explains how th
 1. On plugin load, `readOntologyCache()` attempts to hydrate the previous graph from the configured cache path.
 2. On layout ready, `Plugin.rebuildIndex()` performs the cold full-vault build with `buildOntologyIndex()`.
 3. The indexer scans all Markdown files once.
-4. Files under the configured type folder, `_types` by default, are parsed as ontology types.
-5. Other Markdown files with `instance_of` or `type` frontmatter are parsed as ontology entities.
-6. The indexer computes ancestor sets for each type.
-7. The indexer collects global relation definitions from relation-registry type files.
-8. The indexer resolves type composition from `extends` and `implements`.
-9. The indexer computes effective lock states for types and entities.
-10. Validation issues are collected into `OntologyIndex.issues`.
-11. If automatic inverse updates are enabled, missing inverse entries are repaired only for relations declaring `auto-update: true`.
-12. The cache writer saves the derived index to `.obsidian/ontology-cache.json` by default.
-13. Query blocks and commands use the in-memory index, rebuilding only if the index is missing or the user runs the rebuild command.
+4. If the configured schema file exists, it is parsed first.
+5. Files under the configured type folder, `_types` by default, are parsed as modular ontology types.
+6. Other Markdown files with `instance_of` or `type` frontmatter are parsed as ontology entities.
+7. The indexer computes ancestor sets for each type.
+8. The indexer collects global relation definitions from relation-registry type files.
+9. The indexer resolves type composition from `extends` and `implements`.
+10. The indexer computes effective lock states for types and entities.
+11. Validation issues are collected into `OntologyIndex.issues`.
+12. If automatic inverse updates are enabled, missing inverse entries are repaired only for relations declaring `auto-update: true`.
+13. The cache writer saves the derived index to `.obsidian/ontology-cache.json` by default.
+14. Query blocks and commands use the in-memory index, rebuilding only if the index is missing or the user runs the rebuild command.
 
 After the cold build, file events update the hot graph incrementally.
 Cache writes are debounced; in-memory graph updates are not.
@@ -66,6 +67,7 @@ Each event applies one raw source change:
 
 For entity edits, this avoids rereading unrelated files.
 For type edits, the derived pass still revalidates the graph because inheritance and schema changes can affect every downstream entity.
+For single schema file edits, the plugin performs a full rebuild because that file can introduce, remove, or rename many constructors at once.
 This keeps schema validity current without forcing full vault I/O on every ordinary note edit.
 
 ## Linter-Inspired Operational Model
@@ -127,6 +129,47 @@ Implemented fields:
 - `lock`
 - `type`
 - `values`
+
+## Schema Sources
+
+The ontology supports two schema authoring styles that compile to the same internal records:
+
+- A single configured JSON/YAML schema file, `_types/ontology.schema.yaml` by default.
+- Modular constructor files in the configured type folder.
+
+The single schema file supports three top-level maps:
+
+```yaml
+relations:
+  influenced_by:
+    value-type: wikilink
+    range: [[Person]]
+    inverse: influenced
+
+interfaces:
+  Influenceable:
+    lock: true
+    relations:
+      - influenced_by
+
+types:
+  Philosopher:
+    lock: true
+    extends:
+      - [[Person]]
+    implements:
+      - [[Influenceable]]
+```
+
+The parser creates synthetic type records from this file:
+
+- `relations` becomes a relation registry type.
+- `interfaces` become `interface: true` type records.
+- `types` become ordinary type records.
+
+The schema file is loaded before modular constructor files.
+If both sources define the same type name, the later modular file wins.
+Changing the schema file triggers a full index rebuild.
 
 ## Composition And Global Relations
 

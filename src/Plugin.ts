@@ -9,6 +9,7 @@ import { readOntologyCache, writeOntologyCache } from './ontology/cache.ts';
 import {
   buildOntologyIndex,
   isIgnoredOntologyPath,
+  isOntologySchemaFile,
   isOntologyTypeFile,
   removeOntologyFile,
   upsertOntologyFile
@@ -125,6 +126,7 @@ export class Plugin extends ObsidianPlugin {
             filesToIgnore: this.pluginSettings.filesToIgnore,
             foldersToIgnore: this.pluginSettings.foldersToIgnore,
             frontmatterIgnoreRules: this.pluginSettings.frontmatterIgnoreRules,
+            schemaPath: this.pluginSettings.schemaPath,
             typeFolder: this.pluginSettings.typeFolder,
           });
           await writeOntologyCache(this.app, this.pluginSettings.cachePath, this.index);
@@ -184,6 +186,7 @@ export class Plugin extends ObsidianPlugin {
           filesToIgnore: this.pluginSettings.filesToIgnore,
           foldersToIgnore: this.pluginSettings.foldersToIgnore,
           frontmatterIgnoreRules: this.pluginSettings.frontmatterIgnoreRules,
+          schemaPath: this.pluginSettings.schemaPath,
           typeFolder: this.pluginSettings.typeFolder,
         });
       }
@@ -201,6 +204,10 @@ export class Plugin extends ObsidianPlugin {
   }
 
   private async handleMetadataChanged(file: TFile): Promise<void> {
+    if (isOntologySchemaFile(file, this.pluginSettings.schemaPath)) {
+      await this.rebuildIndex(false);
+      return;
+    }
     if (isOntologyTypeFile(file, this.pluginSettings.typeFolder) || isIgnoredOntologyPath(file.path, this.indexSettings())) {
       return;
     }
@@ -208,6 +215,10 @@ export class Plugin extends ObsidianPlugin {
   }
 
   private async handleVaultCreate(file: TAbstractFile): Promise<void> {
+    if (file instanceof TFile && isOntologySchemaFile(file, this.pluginSettings.schemaPath)) {
+      await this.rebuildIndex(false);
+      return;
+    }
     if (file instanceof TFile && isOntologyTypeFile(file, this.pluginSettings.typeFolder) && !isIgnoredOntologyPath(file.path, this.indexSettings())) {
       await this.upsertFile(file);
     }
@@ -218,16 +229,28 @@ export class Plugin extends ObsidianPlugin {
       return;
     }
     this.index = removeOntologyFile(this.index, file.path);
+    if (file.path === this.pluginSettings.schemaPath) {
+      void this.rebuildIndex(false);
+      return;
+    }
     this.scheduleCacheWrite();
   }
 
   private async handleVaultModify(file: TAbstractFile): Promise<void> {
+    if (file instanceof TFile && isOntologySchemaFile(file, this.pluginSettings.schemaPath)) {
+      await this.rebuildIndex(false);
+      return;
+    }
     if (file instanceof TFile && isOntologyTypeFile(file, this.pluginSettings.typeFolder)) {
       await this.upsertFile(file);
     }
   }
 
   private async handleVaultRename(file: TAbstractFile, oldPath: string): Promise<void> {
+    if ((file instanceof TFile && isOntologySchemaFile(file, this.pluginSettings.schemaPath)) || oldPath === this.pluginSettings.schemaPath) {
+      await this.rebuildIndex(false);
+      return;
+    }
     const index = await this.ensureIndex();
     this.index = removeOntologyFile(index, oldPath);
     if (file instanceof TFile) {
@@ -258,6 +281,7 @@ export class Plugin extends ObsidianPlugin {
       filesToIgnore: this.pluginSettings.filesToIgnore,
       foldersToIgnore: this.pluginSettings.foldersToIgnore,
       frontmatterIgnoreRules: this.pluginSettings.frontmatterIgnoreRules,
+      schemaPath: this.pluginSettings.schemaPath,
       typeFolder: this.pluginSettings.typeFolder,
     });
     await this.applyAutoInverseUpdates();
@@ -307,12 +331,14 @@ export class Plugin extends ObsidianPlugin {
     filesToIgnore: string[];
     foldersToIgnore: string[];
     frontmatterIgnoreRules: PluginSettings['frontmatterIgnoreRules'];
+    schemaPath: string;
     typeFolder: string;
   } {
     return {
       filesToIgnore: this.pluginSettings.filesToIgnore,
       foldersToIgnore: this.pluginSettings.foldersToIgnore,
       frontmatterIgnoreRules: this.pluginSettings.frontmatterIgnoreRules,
+      schemaPath: this.pluginSettings.schemaPath,
       typeFolder: this.pluginSettings.typeFolder,
     };
   }

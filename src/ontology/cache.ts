@@ -97,6 +97,7 @@ export async function readOntologyCache(app: App, cachePath: string): Promise<On
         filesToIgnore: stringArrayValue(settings['filesToIgnore']),
         foldersToIgnore: stringArrayValue(settings['foldersToIgnore']),
         frontmatterIgnoreRules: frontmatterIgnoreRulesValue(settings['frontmatterIgnoreRules']),
+        schemaPath: stringValue(settings['schemaPath']),
         typeFolder: stringValue(settings['typeFolder'], '_types'),
       },
       types: hydrateMap<OntologyType>(payload['types'], hydrateType),

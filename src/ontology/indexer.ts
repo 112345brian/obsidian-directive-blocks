@@ -3,12 +3,13 @@ import type { App, TFile } from 'obsidian';
 import type { EffectiveLockState, FrontmatterIgnoreRule, OntologyEntity, OntologyIndex, OntologyIssue, OntologyType, PropertyDefinition, RelationDefinition } from './types.ts';
 
 import { extractAssertedLinkTargets, extractLinkTargets, extractNegatedLinkTargets, hasNegatedTarget, normalizeLinkTarget } from './links.ts';
-import { parseOntologyEntity, parseOntologyType } from './parser.ts';
+import { parseOntologyEntity, parseOntologySchema, parseOntologyType } from './parser.ts';
 
 export interface BuildIndexSettings {
   filesToIgnore?: string[];
   foldersToIgnore?: string[];
   frontmatterIgnoreRules?: FrontmatterIgnoreRule[];
+  schemaPath?: string;
   typeFolder: string;
 }
 
@@ -69,6 +70,10 @@ export function isOntologyTypeFile(file: TFile, typeFolder: string): boolean {
   return file.extension === 'md' && file.path.startsWith(`${typeFolder.replace(/\/$/, '')}/`);
 }
 
+export function isOntologySchemaFile(file: TFile, schemaPath: string | undefined): boolean {
+  return Boolean(schemaPath?.trim()) && file.path === schemaPath?.trim();
+}
+
 function createEmptyOntologyIndex(settings: BuildIndexSettings): OntologyIndex {
   return {
     ancestorsByType: new Map<string, Set<string>>(),
@@ -84,6 +89,7 @@ function createEmptyOntologyIndex(settings: BuildIndexSettings): OntologyIndex {
       filesToIgnore: settings.filesToIgnore ?? [],
       foldersToIgnore: settings.foldersToIgnore ?? [],
       frontmatterIgnoreRules: settings.frontmatterIgnoreRules ?? [],
+      schemaPath: settings.schemaPath ?? '',
       typeFolder: settings.typeFolder,
     },
     types: new Map<string, OntologyType>(),
@@ -592,7 +598,22 @@ export function removeOntologyFile(index: OntologyIndex, path: string): Ontology
   return recomputeOntologyDerivedState(index);
 }
 
+async function loadSchemaTypes(app: App, index: OntologyIndex, settings: BuildIndexSettings): Promise<void> {
+  const schemaPath = settings.schemaPath?.trim();
+  if (!schemaPath || !(await app.vault.adapter.exists(schemaPath))) {
+    return;
+  }
+
+  for (const type of parseOntologySchema(schemaPath, await app.vault.adapter.read(schemaPath))) {
+    index.types.set(type.name, type);
+  }
+}
+
 export async function upsertOntologyFile(app: App, index: OntologyIndex, file: TFile, settings: BuildIndexSettings): Promise<OntologyIndex> {
+  if (isOntologySchemaFile(file, settings.schemaPath)) {
+    return buildOntologyIndex(app, settings);
+  }
+
   removeOntologyFile(index, file.path);
   if (isIgnoredOntologyPath(file.path, settings)) {
     return recomputeOntologyDerivedState(index);
@@ -617,8 +638,12 @@ export async function upsertOntologyFile(app: App, index: OntologyIndex, file: T
 
 export async function buildOntologyIndex(app: App, settings: BuildIndexSettings): Promise<OntologyIndex> {
   const index = createEmptyOntologyIndex(settings);
+  await loadSchemaTypes(app, index, settings);
 
   for (const file of app.vault.getMarkdownFiles()) {
+    if (isOntologySchemaFile(file, settings.schemaPath)) {
+      continue;
+    }
     if (isIgnoredOntologyPath(file.path, settings)) {
       continue;
     }

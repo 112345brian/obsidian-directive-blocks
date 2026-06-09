@@ -8,6 +8,21 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+function readStructuredObject(source: string, path = ''): Record<string, unknown> {
+  const trimmed = source.trim();
+  if (!trimmed) {
+    return {};
+  }
+  if (path.endsWith('.json') || trimmed.startsWith('{')) {
+    try {
+      return asRecord(JSON.parse(trimmed) as unknown);
+    } catch {
+      return {};
+    }
+  }
+  return asRecord(parseYaml(trimmed));
+}
+
 function readYamlObject(markdown: string): Record<string, unknown> {
   const trimmed = markdown.trim();
   if (!trimmed) {
@@ -17,12 +32,12 @@ function readYamlObject(markdown: string): Record<string, unknown> {
   if (trimmed.startsWith('---')) {
     const end = trimmed.indexOf('\n---', 3);
     if (end !== -1) {
-      return asRecord(parseYaml(trimmed.slice(3, end)));
+      return readStructuredObject(trimmed.slice(3, end));
     }
   }
 
   const withoutHeading = trimmed.replace(/^# .*(?:\r?\n|$)/, '');
-  return asRecord(parseYaml(withoutHeading));
+  return readStructuredObject(withoutHeading);
 }
 
 function parsePropertyDefinition(value: unknown): PropertyDefinition {
@@ -85,9 +100,7 @@ function parseRelations(value: unknown): Map<string, RelationDefinition> {
   return new Map(Object.entries(asRecord(value)).map(([key, definition]) => [key, parseRelationDefinition(definition)]));
 }
 
-export function parseOntologyType(path: string, markdown: string): OntologyType {
-  const yaml = readYamlObject(markdown);
-  const name = basenameWithoutExtension(path);
+function parseOntologyTypeRecord(name: string, path: string, yaml: Record<string, unknown>): OntologyType {
   return {
     abstract: yaml['abstract'] === true,
     canHave: parsePropertyMap(yaml['can-have']),
@@ -104,6 +117,37 @@ export function parseOntologyType(path: string, markdown: string): OntologyType 
     typeKind: typeof yaml['type'] === 'string' ? yaml['type'] : undefined,
     values: Array.isArray(yaml['values']) ? yaml['values'].map(String) : [],
   };
+}
+
+export function parseOntologyType(path: string, markdown: string): OntologyType {
+  return parseOntologyTypeRecord(basenameWithoutExtension(path), path, readYamlObject(markdown));
+}
+
+function parseSchemaTypeMap(path: string, group: string, value: unknown, defaults: Partial<OntologyType> = {}): OntologyType[] {
+  return Object.entries(asRecord(value)).map(([name, definition]) => ({
+    ...parseOntologyTypeRecord(name, `${path}#${group}/${name}`, asRecord(definition)),
+    ...defaults,
+    name,
+  }));
+}
+
+export function parseOntologySchema(path: string, source: string): OntologyType[] {
+  const schema = readStructuredObject(source, path);
+  const types = [
+    ...parseSchemaTypeMap(path, 'types', schema['types']),
+    ...parseSchemaTypeMap(path, 'interfaces', schema['interfaces'], {
+      isInterface: true,
+    }),
+  ];
+
+  if (schema['relations'] !== undefined) {
+    types.push(parseOntologyTypeRecord('_relations', `${path}#relations`, {
+      relations: schema['relations'],
+      type: 'relation-definitions',
+    }));
+  }
+
+  return types;
 }
 
 export function parseOntologyEntity(path: string, frontmatter: Record<string, unknown>): OntologyEntity | null {
