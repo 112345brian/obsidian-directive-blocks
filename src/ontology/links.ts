@@ -15,42 +15,40 @@ export function normalizeLinkTarget(value: string): string {
   return basenameWithoutExtension(withoutNot.replace(/\.md$/i, ''));
 }
 
-export function extractLinkTargets(value: unknown): string[] {
+function extractTargets(value: unknown, mode: 'all' | 'asserted' | 'negated'): string[] {
   if (typeof value === 'string') {
+    const isNegated = value.trim().startsWith('NOT ');
+    if (mode === 'asserted' && isNegated) {
+      return [];
+    }
+    if (mode === 'negated' && !isNegated) {
+      return [];
+    }
     return [normalizeLinkTarget(value)];
   }
   if (Array.isArray(value)) {
-    return value.flatMap((item) => {
-      if (typeof item === 'string') {
-        return [normalizeLinkTarget(item)];
-      }
-      if (item && typeof item === 'object' && 'target' in item) {
-        return extractLinkTargets((item as { target: unknown }).target);
-      }
-      return [];
-    });
+    return value.flatMap((item) => extractTargets(item, mode));
   }
   if (value && typeof value === 'object' && 'target' in value) {
-    return extractLinkTargets((value as { target: unknown }).target);
+    return extractTargets(value.target, mode);
   }
   return [];
 }
 
-export function hasNegatedTarget(value: unknown, target: string): boolean {
-  const matches = (candidate: unknown): boolean => {
-    if (typeof candidate === 'string') {
-      return candidate.trim().startsWith('NOT ') && normalizeLinkTarget(candidate) === target;
-    }
-    return false;
-  };
+export function extractAssertedLinkTargets(value: unknown): string[] {
+  return extractTargets(value, 'asserted');
+}
 
-  if (matches(value)) {
-    return true;
-  }
-  if (Array.isArray(value)) {
-    return value.some((item) => matches(item));
-  }
-  return false;
+export function extractLinkTargets(value: unknown): string[] {
+  return extractTargets(value, 'all');
+}
+
+export function extractNegatedLinkTargets(value: unknown): string[] {
+  return extractTargets(value, 'negated');
+}
+
+export function hasNegatedTarget(value: unknown, target: string): boolean {
+  return extractNegatedLinkTargets(value).includes(target);
 }
 
 export function toWikiLink(name: string): string {

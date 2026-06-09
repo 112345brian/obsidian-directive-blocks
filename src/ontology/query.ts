@@ -1,48 +1,41 @@
 import type { OntologyEntity, OntologyIndex } from './types.ts';
 
-import { extractLinkTargets, normalizeLinkTarget } from './links.ts';
+import { extractAssertedLinkTargets, hasNegatedTarget, normalizeLinkTarget } from './links.ts';
+
+interface AndNode {
+  left: QueryNode;
+  right: QueryNode;
+  type: 'and';
+}
+
+interface NotNode {
+  node: QueryNode;
+  type: 'not';
+}
+
+interface OrNode {
+  left: QueryNode;
+  right: QueryNode;
+  type: 'or';
+}
+
+interface PredicateNode {
+  key: string;
+  type: 'predicate';
+  value: string;
+}
 
 interface QueryOptions {
   include: 'all' | 'incomplete' | 'locked';
 }
 
-interface ParsedTerm {
-  key: string;
-  negated: boolean;
-  value: string;
+interface TrueNode {
+  type: 'true';
 }
 
-function splitTerms(source: string): { options: QueryOptions; terms: ParsedTerm[] } {
-  const options: QueryOptions = { include: 'locked' };
-  const normalized = source
-    .replace(/\r?\n/g, ' AND ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const rawTerms = normalized.split(/\s+AND\s+/i).map((term) => term.trim()).filter(Boolean);
-  const terms: ParsedTerm[] = [];
+type QueryNode = AndNode | NotNode | OrNode | PredicateNode | TrueNode;
 
-  for (const rawTerm of rawTerms) {
-    const includeMatch = /^include:\s*(all|incomplete|locked)$/i.exec(rawTerm);
-    const includeValue = includeMatch?.[1];
-    if (includeValue) {
-      options.include = includeValue.toLowerCase() as QueryOptions['include'];
-      continue;
-    }
-
-    const negated = /^NOT\s+/i.test(rawTerm);
-    const term = negated ? rawTerm.replace(/^NOT\s+/i, '') : rawTerm;
-    const separator = term.indexOf(':');
-    if (separator === -1) {
-      continue;
-    }
-    terms.push({
-      key: term.slice(0, separator).trim(),
-      negated,
-      value: term.slice(separator + 1).trim(),
-    });
-  }
-  return { options, terms };
-}
+const TRUE_NODE: TrueNode = { type: 'true' };
 
 function entityTypeChain(index: OntologyIndex, entity: OntologyEntity): Set<string> {
   const chain = new Set<string>();
@@ -55,33 +48,148 @@ function entityTypeChain(index: OntologyIndex, entity: OntologyEntity): Set<stri
   return chain;
 }
 
-function matchesTerm(index: OntologyIndex, entity: OntologyEntity, term: ParsedTerm): boolean {
+function extractOptions(source: string): { options: QueryOptions; sourceWithoutOptions: string } {
+  const options: QueryOptions = { include: 'locked' };
+  const sourceWithoutOptions = source.replace(/\binclude\s*:\s*(all|incomplete|locked)\b/gi, (_match, includeValue: string) => {
+    options.include = includeValue.toLowerCase() as QueryOptions['include'];
+    return '';
+  });
+  return { options, sourceWithoutOptions };
+}
+
+function isOperator(token: string): boolean {
+  return /^(?:AND|OR|NOT|\(|\))$/i.test(token);
+}
+
+function tokenize(source: string): string[] {
+  return source
+    .replace(/\r?\n/g, ' ')
+    .match(/\[\[[^\]]+\]\]|"[^"]*"|\(|\)|\bAND\b|\bOR\b|\bNOT\b|[^\s()]+/gi) ?? [];
+}
+
+function parsePredicate(tokens: string[], cursor: { index: number }): QueryNode {
+  const token = tokens[cursor.index];
+  if (!token || isOperator(token) || !token.includes(':')) {
+    return TRUE_NODE;
+  }
+  cursor.index++;
+
+  const separator = token.indexOf(':');
+  const key = token.slice(0, separator).trim();
+  let value = token.slice(separator + 1).trim();
+  if (!value) {
+    value = tokens[cursor.index] ?? '';
+    cursor.index++;
+  }
+  if (/^NOT$/i.test(value) && /^EXISTS$/i.test(tokens[cursor.index] ?? '')) {
+    value = 'NOT EXISTS';
+    cursor.index++;
+  }
+  return { key, type: 'predicate', value };
+}
+
+function parseOperand(tokens: string[], cursor: { index: number }): QueryNode {
+  const token = tokens[cursor.index];
+  if (!token) {
+    return TRUE_NODE;
+  }
+  if (/^NOT$/i.test(token)) {
+    cursor.index++;
+    return { node: parseOperand(tokens, cursor), type: 'not' };
+  }
+  if (token === '(') {
+    cursor.index++;
+    const node = parseOr(tokens, cursor);
+    if (tokens[cursor.index] === ')') {
+      cursor.index++;
+    }
+    return node;
+  }
+  return parsePredicate(tokens, cursor);
+}
+
+function parseAnd(tokens: string[], cursor: { index: number }): QueryNode {
+  let node = parseOperand(tokens, cursor);
+  while (/^AND$/i.test(tokens[cursor.index] ?? '')) {
+    cursor.index++;
+    node = { left: node, right: parseOperand(tokens, cursor), type: 'and' };
+  }
+  return node;
+}
+
+function parseOr(tokens: string[], cursor: { index: number }): QueryNode {
+  let node = parseAnd(tokens, cursor);
+  while (/^OR$/i.test(tokens[cursor.index] ?? '')) {
+    cursor.index++;
+    node = { left: node, right: parseAnd(tokens, cursor), type: 'or' };
+  }
+  return node;
+}
+
+function parseQuery(source: string): { node: QueryNode; options: QueryOptions } {
+  const { options, sourceWithoutOptions } = extractOptions(source);
+  const tokens = tokenize(sourceWithoutOptions);
+  return {
+    node: tokens.length === 0 ? TRUE_NODE : parseOr(tokens, { index: 0 }),
+    options,
+  };
+}
+
+function scalarValues(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => scalarValues(item));
+  }
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return [String(value)];
+  }
+  return [];
+}
+
+function matchesPredicate(index: OntologyIndex, entity: OntologyEntity, predicate: PredicateNode): boolean {
   const typeKeys = new Set(['type', 'instance_of']);
-  if (typeKeys.has(term.key)) {
-    const expected = normalizeLinkTarget(term.value);
-    const matches = entityTypeChain(index, entity).has(expected);
-    return term.negated ? !matches : matches;
+  if (typeKeys.has(predicate.key)) {
+    return entityTypeChain(index, entity).has(normalizeLinkTarget(predicate.value));
   }
 
-  const value = entity.frontmatter[term.key];
-  if (/^EXISTS$/i.test(term.value)) {
-    const matches = value !== undefined && value !== null && value !== '';
-    return term.negated ? !matches : matches;
+  const value = entity.frontmatter[predicate.key];
+  if (/^EXISTS$/i.test(predicate.value)) {
+    return value !== undefined && value !== null && value !== '';
   }
-  if (/^NOT EXISTS$/i.test(term.value)) {
-    const matches = value === undefined || value === null || value === '';
-    return term.negated ? !matches : matches;
+  if (/^NOT EXISTS$/i.test(predicate.value)) {
+    return value === undefined || value === null || value === '';
   }
 
-  const expected = normalizeLinkTarget(term.value);
-  const linkMatches = extractLinkTargets(value).includes(expected);
-  const scalarMatches = String(value ?? '') === term.value.replace(/^"|"$/g, '');
-  const matches = linkMatches || scalarMatches;
-  return term.negated ? !matches : matches;
+  const expectedTarget = normalizeLinkTarget(predicate.value);
+  if (extractAssertedLinkTargets(value).includes(expectedTarget)) {
+    return true;
+  }
+
+  const expectedScalar = predicate.value.replace(/^"|"$/g, '');
+  return scalarValues(value).some((candidate) => candidate === expectedScalar);
+}
+
+function evaluateNode(index: OntologyIndex, entity: OntologyEntity, node: QueryNode): boolean {
+  switch (node.type) {
+    case 'and':
+      return evaluateNode(index, entity, node.left) && evaluateNode(index, entity, node.right);
+    case 'not':
+      if (node.node.type === 'predicate') {
+        const value = entity.frontmatter[node.node.key];
+        const expectedTarget = normalizeLinkTarget(node.node.value);
+        return hasNegatedTarget(value, expectedTarget) || !matchesPredicate(index, entity, node.node);
+      }
+      return !evaluateNode(index, entity, node.node);
+    case 'or':
+      return evaluateNode(index, entity, node.left) || evaluateNode(index, entity, node.right);
+    case 'predicate':
+      return matchesPredicate(index, entity, node);
+    case 'true':
+      return true;
+  }
 }
 
 export function runOntologyQuery(index: OntologyIndex, source: string): OntologyEntity[] {
-  const { options, terms } = splitTerms(source);
+  const { node, options } = parseQuery(source);
   return [...index.entities.values()]
     .filter((entity) => {
       const lock = index.effectiveEntityLocks.get(entity.path)?.state ?? 'unlocked';
@@ -91,7 +199,7 @@ export function runOntologyQuery(index: OntologyIndex, source: string): Ontology
       if (options.include === 'incomplete' && lock === 'unlocked') {
         return false;
       }
-      return terms.every((term) => matchesTerm(index, entity, term));
+      return evaluateNode(index, entity, node);
     })
     .sort((a, b) => a.name.localeCompare(b.name));
 }

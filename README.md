@@ -13,8 +13,11 @@ The project was scaffolded from the fork of [`mnaoumov/generator-obsidian-plugin
 - Computes effective lock state from entity/type lock intent and ancestor locks
 - Renders inheritance-aware queries in `ontology-query` code blocks
 - Writes `.obsidian/ontology-cache.json` after index rebuilds
+- Hydrates the in-memory graph from cache before the first rebuild when possible
 - Checks schema consistency and relation ranges
+- Validates nominal property values
 - Detects missing inverse/symmetric relation entries
+- Can automatically repair inverse relations that declare `auto-update: true`
 - Provides commands to rebuild, check, scaffold the active note, and fix missing inverses
 
 ## Query Blocks
@@ -38,6 +41,7 @@ Supported V1 clauses:
 - `property: EXISTS`
 - `property: NOT EXISTS`
 - `NOT property: [[Target]]`
+- `AND`, `OR`, `NOT`, and parenthesized groups
 - `include: locked | incomplete | all`
 
 ## Commands

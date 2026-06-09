@@ -13,11 +13,23 @@ function makeIndex(): OntologyIndex {
     ]),
     cacheVersion: 1,
     effectiveEntityLocks: new Map([
+      ['Ada.md', { state: 'locked' }],
       ['Spinoza.md', { state: 'locked' }],
       ['Draft.md', { state: 'incomplete' }],
     ]),
     effectiveTypeLocks: new Map(),
     entities: new Map([
+      ['Ada.md', {
+        frontmatter: {
+          influenced: ['NOT [[Nietzsche]]'],
+          instance_of: '[[Person]]',
+          lock: true,
+        },
+        instanceOf: ['Person'],
+        lockIntent: true,
+        name: 'Ada',
+        path: 'Ada.md',
+      }],
       ['Spinoza.md', {
         frontmatter: {
           influenced_by: ['[[Descartes]]'],
@@ -51,7 +63,7 @@ function makeIndex(): OntologyIndex {
 describe('runOntologyQuery', () => {
   it('matches inherited type chains for locked entities by default', () => {
     const results = runOntologyQuery(makeIndex(), 'type: Person');
-    expect(results.map((entity) => entity.name)).toEqual(['Spinoza']);
+    expect(results.map((entity) => entity.name)).toEqual(['Ada', 'Spinoza']);
   });
 
   it('supports relation filters and include widening', () => {
@@ -60,5 +72,13 @@ describe('runOntologyQuery', () => {
 
     const widenedResults = runOntologyQuery(makeIndex(), 'type: Philosopher AND include: incomplete');
     expect(widenedResults.map((entity) => entity.name)).toEqual(['Draft', 'Spinoza']);
+  });
+
+  it('supports OR groups and explicit negated relation facts', () => {
+    const orResults = runOntologyQuery(makeIndex(), '(type: Rationalist OR type: Person) AND NOT influenced_by: [[Kant]]');
+    expect(orResults.map((entity) => entity.name)).toEqual(['Ada', 'Spinoza']);
+
+    const negatedRelationResults = runOntologyQuery(makeIndex(), 'type: Person AND NOT influenced: [[Nietzsche]]');
+    expect(negatedRelationResults.map((entity) => entity.name)).toEqual(['Ada', 'Spinoza']);
   });
 });

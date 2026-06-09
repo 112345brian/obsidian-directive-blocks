@@ -5,7 +5,7 @@ import { MarkdownRenderer, Notice, Plugin as ObsidianPlugin } from 'obsidian';
 import type { OntologyIndex } from './ontology/types.ts';
 import type { PluginSettings } from './PluginSettings.ts';
 
-import { writeOntologyCache } from './ontology/cache.ts';
+import { readOntologyCache, writeOntologyCache } from './ontology/cache.ts';
 import { buildOntologyIndex } from './ontology/indexer.ts';
 import { fixMissingInverses, scaffoldEntity } from './ontology/mutations.ts';
 import { runOntologyQuery } from './ontology/query.ts';
@@ -18,10 +18,12 @@ export class Plugin extends ObsidianPlugin {
   public index: null | OntologyIndex = null;
   public pluginSettings: PluginSettings = new PluginSettingsClass();
 
+  private isAutoFixingInverses = false;
   private rebuildTimer: null | number = null;
 
   public override async onload(): Promise<void> {
     this.pluginSettings = Object.assign(new PluginSettingsClass(), await this.loadData());
+    this.index = await readOntologyCache(this.app, this.pluginSettings.cachePath);
 
     this.registerMarkdownCodeBlockProcessor('ontology-query', this.renderQueryBlock.bind(this));
 
@@ -83,8 +85,25 @@ export class Plugin extends ObsidianPlugin {
     });
     await writeOntologyCache(this.app, this.pluginSettings.cachePath, this.index);
 
+    let autoFixedInverses = 0;
+    if (this.pluginSettings.autoUpdateInverses && !this.isAutoFixingInverses) {
+      this.isAutoFixingInverses = true;
+      try {
+        autoFixedInverses = await fixMissingInverses(this.app, this.index, { onlyAutoUpdate: true });
+        if (autoFixedInverses > 0) {
+          this.index = await buildOntologyIndex(this.app, {
+            typeFolder: this.pluginSettings.typeFolder,
+          });
+          await writeOntologyCache(this.app, this.pluginSettings.cachePath, this.index);
+        }
+      } finally {
+        this.isAutoFixingInverses = false;
+      }
+    }
+
     if (showNotice) {
-      new Notice(`Ontology index rebuilt: ${this.index.types.size} types, ${this.index.entities.size} entities, ${this.index.issues.length} issues.`);
+      const autoFixText = autoFixedInverses > 0 ? `, ${autoFixedInverses} inverse updates` : '';
+      new Notice(`Ontology index rebuilt: ${this.index.types.size} types, ${this.index.entities.size} entities, ${this.index.issues.length} issues${autoFixText}.`);
     }
   }
 

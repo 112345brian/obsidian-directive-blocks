@@ -50,6 +50,7 @@ export interface EffectiveLockState {
 }
 
 export interface OntologyIssue {
+  autoUpdate?: boolean;
   autofixable?: boolean;
   file: string;
   message: string;

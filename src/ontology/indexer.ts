@@ -2,7 +2,7 @@ import type { App, TFile } from 'obsidian';
 
 import type { EffectiveLockState, OntologyEntity, OntologyIndex, OntologyIssue, OntologyType, PropertyDefinition, RelationDefinition } from './types.ts';
 
-import { extractLinkTargets, hasNegatedTarget } from './links.ts';
+import { extractAssertedLinkTargets, extractLinkTargets, extractNegatedLinkTargets, hasNegatedTarget, normalizeLinkTarget } from './links.ts';
 import { parseOntologyEntity, parseOntologyType } from './parser.ts';
 
 export interface BuildIndexSettings {
@@ -142,6 +142,60 @@ function validateCardinality(
   }
 }
 
+function valuesForValidation(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => valuesForValidation(item));
+  }
+  if (typeof value === 'string') {
+    return [normalizeLinkTarget(value)];
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return [String(value)];
+  }
+  if (value && typeof value === 'object' && 'target' in value) {
+    return valuesForValidation(value.target);
+  }
+  return [];
+}
+
+function nominalValues(index: OntologyIndex, definition: PropertyDefinition): string[] {
+  if (definition.values && definition.values.length > 0) {
+    return definition.values;
+  }
+  const referencedType = definition.type ? index.types.get(definition.type) : undefined;
+  if (referencedType?.typeKind === 'nominal') {
+    return referencedType.values;
+  }
+  return [];
+}
+
+function validatePropertyDefinition(
+  index: OntologyIndex,
+  entity: OntologyEntity,
+  property: string,
+  definition: PropertyDefinition
+): void {
+  const value = entity.frontmatter[property];
+  validateCardinality(entity.path, property, definition, value, index.issues);
+
+  const allowedValues = nominalValues(index, definition);
+  if (allowedValues.length === 0) {
+    return;
+  }
+
+  const allowed = new Set(allowedValues);
+  for (const candidate of valuesForValidation(value)) {
+    if (!allowed.has(candidate)) {
+      index.issues.push({
+        file: entity.path,
+        message: `${property} value ${candidate} is outside nominal values: ${allowedValues.join(', ')}`,
+        property,
+        severity: 'error',
+      });
+    }
+  }
+}
+
 function validateIndex(index: OntologyIndex): void {
   for (const entity of index.entities.values()) {
     const chain = entityTypeChain(entity, index.ancestorsByType);
@@ -183,7 +237,13 @@ function validateIndex(index: OntologyIndex): void {
             severity: 'error',
           });
         } else {
-          validateCardinality(entity.path, property, definition, entity.frontmatter[property], index.issues);
+          validatePropertyDefinition(index, entity, property, definition);
+        }
+      }
+
+      for (const [property, definition] of collectInheritedMap(typeName, index, (type) => type.canHave)) {
+        if (hasValue(entity.frontmatter, property)) {
+          validatePropertyDefinition(index, entity, property, definition);
         }
       }
 
@@ -215,7 +275,21 @@ function validateRelation(index: OntologyIndex, entity: OntologyEntity, property
 
   validateCardinality(entity.path, property, relation, value, index.issues);
 
-  for (const targetName of extractLinkTargets(value)) {
+  const assertedTargets = new Set(extractAssertedLinkTargets(value));
+  const negatedTargets = new Set(extractNegatedLinkTargets(value));
+  for (const targetName of assertedTargets) {
+    if (negatedTargets.has(targetName)) {
+      index.issues.push({
+        file: entity.path,
+        message: `${property} both asserts and negates ${targetName}`,
+        property,
+        severity: 'error',
+        target: targetName,
+      });
+    }
+  }
+
+  for (const targetName of assertedTargets) {
     if (hasNegatedTarget(value, targetName)) {
       continue;
     }
@@ -242,6 +316,7 @@ function validateRelation(index: OntologyIndex, entity: OntologyEntity, property
     if (inverseProperty && !extractLinkTargets(target.frontmatter[inverseProperty]).includes(entity.name)) {
       index.issues.push({
         autofixable: true,
+        autoUpdate: relation.autoUpdate === true,
         file: entity.path,
         message: `${property} -> ${targetName} is missing inverse ${inverseProperty} on ${targetName}`,
         property,

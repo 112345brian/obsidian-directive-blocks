@@ -6,6 +6,13 @@ interface LintParams {
 }
 
 export async function lint(params: LintParams = {}): Promise<void> {
-  const targets = params.paths?.length ? params.paths : ['.'];
+  const targets = params.paths?.length
+    ? params.paths
+    : [
+      'eslint.config.mts',
+      'vitest.config.ts',
+      'scripts/**/*.ts',
+      'src/**/*.ts'
+    ];
   await execFromRoot(['npx', 'eslint', ...(params.shouldFix ? ['--fix'] : []), { batchedArgs: targets }]);
 }

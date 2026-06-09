@@ -8,7 +8,7 @@ The product contract remains [`spec.md`](spec.md); this document explains how th
 - Keep Markdown and YAML frontmatter as the source of truth.
 - Keep ontology logic independent from Obsidian UI surfaces where practical.
 - Treat indexing as a graph problem over vault files, not a tag expansion problem.
-- Make relation writes explicit through a command before enabling automatic mutation.
+- Keep automatic relation writes opt-in at both the plugin setting and relation definition levels.
 - Cache derived graph state for startup and debugging.
 
 ## Module Layout
@@ -20,21 +20,23 @@ The product contract remains [`spec.md`](spec.md); this document explains how th
 - `src/ontology/indexer.ts` builds the ontology graph, computes inherited type chains, computes effective lock states, and validates consistency.
 - `src/ontology/query.ts` evaluates the V1 query subset against the built index.
 - `src/ontology/mutations.ts` performs frontmatter writes for scaffolding and missing inverse relation fixes.
-- `src/ontology/cache.ts` serializes the derived index to the configured vault cache path.
+- `src/ontology/cache.ts` hydrates and serializes the derived index at the configured vault cache path.
 - `src/ontology/links.ts` normalizes Obsidian wiki links and extracts relation targets.
 - `src/ontology/types.ts` contains the core TypeScript data model.
 
 ## Data Flow
 
-1. On layout ready, `Plugin.rebuildIndex()` calls `buildOntologyIndex()`.
-2. The indexer scans all Markdown files.
-3. Files under the configured type folder, `_types` by default, are parsed as ontology types.
-4. Other Markdown files with `instance_of` or `type` frontmatter are parsed as ontology entities.
-5. The indexer computes ancestor sets for each type.
-6. The indexer computes effective lock states for types and entities.
-7. Validation issues are collected into `OntologyIndex.issues`.
-8. The cache writer saves the derived index to `.obsidian/ontology-cache.json` by default.
-9. Query blocks and commands use the in-memory index, rebuilding if needed.
+1. On plugin load, `readOntologyCache()` attempts to hydrate the previous graph from the configured cache path.
+2. On layout ready, `Plugin.rebuildIndex()` calls `buildOntologyIndex()`.
+3. The indexer scans all Markdown files.
+4. Files under the configured type folder, `_types` by default, are parsed as ontology types.
+5. Other Markdown files with `instance_of` or `type` frontmatter are parsed as ontology entities.
+6. The indexer computes ancestor sets for each type.
+7. The indexer computes effective lock states for types and entities.
+8. Validation issues are collected into `OntologyIndex.issues`.
+9. If automatic inverse updates are enabled, missing inverse entries are repaired only for relations declaring `auto-update: true`.
+10. The cache writer saves the derived index to `.obsidian/ontology-cache.json` by default.
+11. Query blocks and commands use the in-memory index, rebuilding if needed.
 
 Vault create, modify, and delete events schedule a debounced rebuild.
 
@@ -112,15 +114,17 @@ The current checker reports:
 - Cardinality violations for `one` and `one-to-one`
 - Unknown relation targets
 - Relation targets outside declared `range`
+- Nominal property values outside allowed values
+- Relation values that both assert and explicitly negate the same target
 - Missing inverse or symmetric relation entries
 
 Missing inverse entries are marked autofixable.
-They are not silently written during validation.
+They are not silently written during validation unless plugin-level automatic inverse updates are enabled and the relation itself declares `auto-update: true`.
 
 ## Query Engine
 
-V1 query parsing is deliberately small.
-It supports conjunctions split by `AND`, unary `NOT`, type filters, property filters, existence checks, and include-mode widening.
+V1 query parsing is deliberately small but supports boolean expressions.
+It supports `AND`, `OR`, unary `NOT`, parenthesized groups, type filters, property filters, existence checks, and include-mode widening.
 
 Examples:
 
@@ -128,15 +132,17 @@ Examples:
 type: Person
 type: Philosopher AND influenced_by: [[Descartes]]
 type: Philosopher AND NOT influenced: [[Nietzsche]]
+type: Philosopher OR type: Scientist
+(type: Rationalist OR type: Empiricist) AND birth-date: EXISTS
 type: Person AND birth-date: EXISTS
 type: Philosopher AND include: all
 ```
 
-`OR`, traversal, saved queries, and comparison expressions from the larger spec are not implemented yet.
+Traversal, saved queries, and comparison expressions from the larger spec are not implemented yet.
 
 ## Mutations
 
-The plugin currently mutates frontmatter only through explicit commands:
+The plugin mutates frontmatter through explicit commands and one guarded automatic path:
 
 - `Scaffold active ontology note`
 - `Fix missing inverse relations`
@@ -145,7 +151,8 @@ Scaffolding adds missing inherited `must-have` and `can-have` fields with `null`
 
 Inverse fixing reads validation issues, finds missing inverse or symmetric relation entries, and appends wiki links to the target note's frontmatter.
 
-The `autoUpdateInverses` setting exists as a future switch, but automatic write-on-save behavior is intentionally not active in V1.
+When `autoUpdateInverses` is enabled, rebuilds automatically fix missing inverse entries only for relation definitions with `auto-update: true`.
+The automatic path is guarded against recursive write loops.
 
 ## Cache
 
@@ -160,17 +167,15 @@ It is written after rebuilds and contains:
 - Generation timestamp
 - Index settings
 
-The current V1 writes the cache but does not yet load it for startup short-circuiting.
+The plugin attempts to load this cache on startup.
+Malformed, missing, or version-mismatched cache files are ignored and replaced by a normal rebuild.
 
 ## Known Gaps
 
-- No full parser for `OR`, nested boolean expressions, `WHERE`, traversal, or comparisons.
+- No parser for `WHERE`, traversal, comparison expressions, or saved-query composition.
 - No migration dry-run and confirmation workflow.
 - No automatic instantiation hook runner.
-- No startup cache hydration.
 - No adaptive validation priority queue.
-- No nominal value validation yet.
-- No closed-world negation conflict validation beyond relation target extraction.
 - No Obsidian Bases integration.
 
 These are the next implementation layers after the V1 graph, query, validation, and command surface stabilizes.
