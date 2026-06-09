@@ -83,8 +83,8 @@ Ignored file patterns are JavaScript regular expressions matched against vault-r
 Ignored files are skipped during cold indexing and removed from the hot index on incremental updates.
 
 Ignored frontmatter rules apply to entity notes, not type files.
-Each rule is either a key presence check or a `key: value` match.
-For value rules, scalar values and array entries are compared as strings.
+Each rule is either a key presence check or a `key: value` match, for example `up: Philosopher`.
+For value rules, scalar values and array entries are compared as strings and as normalized wiki-link targets.
 
 ## Type Parsing
 

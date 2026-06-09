@@ -124,11 +124,11 @@ export class PluginSettingsTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName('Ignored frontmatter')
-      .setDesc('One rule per line. Use "key" to ignore when present, or "key: value" to ignore when a scalar or array value matches.')
+      .setName('Frontmatter ignore list')
+      .setDesc('One frontmatter matcher per line, like "up: Philosopher". Matching entity notes are excluded from ontology indexing and validation.')
       .addTextArea((text) =>
         text
-          .setPlaceholder('ontology-ignore\nstatus: private')
+          .setPlaceholder('up: Philosopher\nontology-ignore')
           .setValue(formatFrontmatterIgnoreRules(this.plugin.pluginSettings.frontmatterIgnoreRules))
           .onChange(async (value) => {
             this.plugin.pluginSettings.frontmatterIgnoreRules = parseFrontmatterIgnoreRules(value);

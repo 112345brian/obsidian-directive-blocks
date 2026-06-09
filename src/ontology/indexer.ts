@@ -39,7 +39,8 @@ function frontmatterValues(value: unknown): string[] {
     return value.flatMap((item) => frontmatterValues(item));
   }
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-    return [String(value)];
+    const rawValue = String(value);
+    return [rawValue, normalizeLinkTarget(rawValue)];
   }
   return [];
 }
@@ -56,7 +57,8 @@ export function isIgnoredByFrontmatter(frontmatter: Record<string, unknown>, set
       return true;
     }
 
-    if (frontmatterValues(frontmatter[key]).includes(expectedValue)) {
+    const expectedValues = new Set([expectedValue, normalizeLinkTarget(expectedValue)]);
+    if (frontmatterValues(frontmatter[key]).some((value) => expectedValues.has(value))) {
       return true;
     }
   }

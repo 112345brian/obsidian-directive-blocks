@@ -113,5 +113,10 @@ describe('incremental ontology index state', () => {
       { status: 'public' },
       { frontmatterIgnoreRules: [{ key: 'status', value: 'private' }], typeFolder: '_types' }
     )).toBe(false);
+
+    expect(isIgnoredByFrontmatter(
+      { up: '[[Philosopher]]' },
+      { frontmatterIgnoreRules: [{ key: 'up', value: 'Philosopher' }], typeFolder: '_types' }
+    )).toBe(true);
   });
 });
