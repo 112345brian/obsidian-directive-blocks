@@ -15,6 +15,8 @@ import {
 } from './ontology/indexer.ts';
 import { fixMissingInverses, scaffoldEntity } from './ontology/mutations.ts';
 import { runOntologyQuery } from './ontology/query.ts';
+import { summarizeIssues } from './ontology/issues.ts';
+import { OntologyIssuesModal } from './OntologyIssuesModal.ts';
 import { PluginSettings as PluginSettingsClass } from './PluginSettings.ts';
 import { PluginSettingsTab } from './PluginSettingsTab.ts';
 
@@ -58,6 +60,12 @@ export class Plugin extends ObsidianPlugin {
       callback: () => { this.showValidationSummary(); },
       id: 'check-consistency',
       name: 'Check ontology consistency',
+    });
+
+    this.addCommand({
+      callback: () => { void this.openIssuesModal(); },
+      id: 'open-issues',
+      name: 'Open ontology issues',
     });
 
     this.addCommand({
@@ -129,6 +137,24 @@ export class Plugin extends ObsidianPlugin {
       const autoFixText = autoFixedInverses > 0 ? `, ${autoFixedInverses} inverse updates` : '';
       new Notice(`Ontology index rebuilt: ${this.index.types.size} types, ${this.index.entities.size} entities, ${this.index.issues.length} issues${autoFixText}.`);
     }
+  }
+
+  public async openIssuesModal(file?: string): Promise<void> {
+    const index = await this.ensureIndex();
+    const issues = file ? index.issues.filter((issue) => issue.file === file) : index.issues;
+    const summary = summarizeIssues(issues);
+    new Notice(`Ontology issues: ${summary.errors} errors, ${summary.warnings} warnings.`);
+
+    new OntologyIssuesModal(this.app, {
+      getIssues: () => this.index?.issues ?? [],
+      initialFilter: file ? { file } : undefined,
+      onFixInverses: async () => {
+        await this.fixInverses(false);
+      },
+      onRebuild: async () => {
+        await this.rebuildIndex(true);
+      },
+    }).open();
   }
 
   private async applyAutoInverseUpdates(): Promise<number> {
@@ -260,10 +286,7 @@ export class Plugin extends ObsidianPlugin {
       new Notice('Ontology index is not ready yet.');
       return;
     }
-    const errors = this.index.issues.filter((issue) => issue.severity === 'error').length;
-    const warnings = this.index.issues.length - errors;
-    new Notice(`Ontology consistency: ${errors} errors, ${warnings} warnings.`);
-    console.table(this.index.issues);
+    void this.openIssuesModal();
   }
 
   private indexSettings(): {
@@ -293,10 +316,7 @@ export class Plugin extends ObsidianPlugin {
       return;
     }
 
-    const errors = issues.filter((issue) => issue.severity === 'error').length;
-    const warnings = issues.length - errors;
-    new Notice(`Active note ontology: ${errors} errors, ${warnings} warnings.`);
-    console.table(issues);
+    await this.openIssuesModal(file.path);
   }
 
   private async scaffoldActiveNote(file: TFile): Promise<void> {
@@ -306,10 +326,12 @@ export class Plugin extends ObsidianPlugin {
     await this.rebuildIndex(false);
   }
 
-  private async fixInverses(): Promise<void> {
+  private async fixInverses(showNotice = true): Promise<void> {
     const index = await this.ensureIndex();
     const fixed = await fixMissingInverses(this.app, index);
-    new Notice(`Ontology fixed ${fixed} inverse relation entries.`);
+    if (showNotice) {
+      new Notice(`Ontology fixed ${fixed} inverse relation entries.`);
+    }
     await this.rebuildIndex(false);
   }
 }

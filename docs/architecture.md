@@ -75,6 +75,7 @@ Borrowed patterns:
 
 - Ignored folders, ignored file patterns, and ignored frontmatter rules are settings, not ontology facts.
 - Commands can target a scope, starting with the active note and the whole vault.
+- Issue review uses commands/settings and an Obsidian modal rather than note code blocks.
 - Bulk writes remain explicit commands unless both plugin settings and schema relation definitions opt in.
 - Settings and cache writes are debounced; validation state stays in memory.
 
@@ -85,6 +86,18 @@ Ignored files are skipped during cold indexing and removed from the hot index on
 Ignored frontmatter rules apply to entity notes, not type files.
 Each rule is either a key presence check or a `key: value` match, for example `up: Philosopher`.
 For value rules, scalar values and array entries are compared as strings and as normalized wiki-link targets.
+
+## Issue Review
+
+Validation issues are exposed through:
+
+- `Check ontology consistency`
+- `Check active ontology note`
+- `Open ontology issues`
+- the `Issue report` button in plugin settings
+
+The issue modal shows current in-memory validation results, supports severity and autofixable filters, opens affected files, rebuilds the index, and runs inverse-relation fixes.
+This keeps validation review in Obsidian UI instead of requiring users to embed operational code blocks in notes.
 
 ## Type Parsing
 

@@ -35,6 +35,17 @@ export class PluginSettingsTab extends PluginSettingTab {
     containerEl.createEl('h2', { text: 'Obsidian Ontology' });
 
     new Setting(containerEl)
+      .setName('Issue report')
+      .setDesc('Open current ontology validation results.')
+      .addButton((button) =>
+        button
+          .setButtonText('Open issues')
+          .onClick(() => {
+            void this.plugin.openIssuesModal();
+          })
+      );
+
+    new Setting(containerEl)
       .setName('Type folder')
       .setDesc('Markdown folder containing ontology type definitions.')
       .addText((text) =>

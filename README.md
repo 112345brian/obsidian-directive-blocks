@@ -20,6 +20,7 @@ The project was scaffolded from the fork of [`mnaoumov/generator-obsidian-plugin
 - Validates nominal property values
 - Detects missing inverse/symmetric relation entries
 - Can automatically repair inverse relations that declare `auto-update: true`
+- Provides an issue report modal with severity/autofix filters and file navigation
 - Provides commands to rebuild, check, scaffold the active note, and fix missing inverses
 
 ## Query Blocks
@@ -51,6 +52,7 @@ Supported V1 clauses:
 - `Obsidian Ontology: Rebuild ontology index`
 - `Obsidian Ontology: Check ontology consistency`
 - `Obsidian Ontology: Check active ontology note`
+- `Obsidian Ontology: Open ontology issues`
 - `Obsidian Ontology: Scaffold active ontology note`
 - `Obsidian Ontology: Fix missing inverse relations`
 
